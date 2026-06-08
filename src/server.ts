@@ -183,11 +183,12 @@ export function createMcpServer(): McpServer {
         );
 
         return {
+          // First content item is the render data as JSON — matching the
+          // google-maps app exactly, which is what the Langdock host renders
+          // inline. (A plain-sentence text block here causes the host to treat
+          // the resource as a file attachment instead.)
           content: [
-            {
-              type: "text",
-              text: `Opened "${renderData.title}" in an editable draw.io canvas.`,
-            },
+            { type: "text", text: JSON.stringify(renderData) },
             {
               type: "resource",
               resource: {
