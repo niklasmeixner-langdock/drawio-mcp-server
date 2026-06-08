@@ -55,13 +55,13 @@ Positions are auto-laid-out (layered, centered) when `x`/`y` are omitted — jus
 
 ### `render_diagram`
 
-Display an interactive, editable draw.io canvas. Renders ready-made mxGraph `xml` (typically the output of `create_diagram`); building from a description lives in `create_diagram`, so this tool only renders.
+Display the diagram inline. Renders ready-made mxGraph `xml` (typically the output of `create_diagram`); building from a description lives in `create_diagram`, so this tool only renders.
 
-**Parameters:** `xml` (the diagram to render — omit to open a blank canvas), `title` (optional).
+**Parameters:** `xml` (the diagram to render — omit for an empty placeholder), `title` (optional).
 
-The rendered canvas supports live editing and exporting to **PNG** (re-editable, `xmlpng`), **SVG** (`xmlsvg`), and **XML** (`.drawio`).
+The diagram renders as **interactive inline SVG** (zoom / pan / fullscreen lightbox) via the draw.io **viewer** script, plus an **"Edit in draw.io"** button that opens the full web editor in a new tab with the diagram preloaded (where you can edit and export to PNG/SVG/XML).
 
-> The canvas embeds the draw.io **web editor** (`embed.diagrams.net`) in a nested iframe. MCP Apps render in a sandboxed iframe whose CSP defaults to `frame-src 'none'`, so the editor resource declares `_meta.ui.csp.frameDomains` for `embed.diagrams.net` / `app.diagrams.net` — without it the canvas renders blank.
+> **Why a script, not an iframe:** MCP Apps render inside a sandboxed iframe that allows in-document scripts but blocks nested iframes (CSP `frame-src 'none'`). So the UI loads the draw.io **viewer** (`viewer.diagrams.net/js/viewer-static.min.js`) as a `<script>` and draws inline SVG — the same mechanism the google-maps MCP app uses to render its map. Embedding `embed.diagrams.net` as a nested iframe renders blank.
 
 ## Resources
 

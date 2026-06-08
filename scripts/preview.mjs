@@ -11,10 +11,10 @@ const [clientT, serverT] = InMemoryTransport.createLinkedPair();
 const client = new Client({ name: "preview", version: "1.0.0" });
 await Promise.all([server.connect(serverT), client.connect(clientT)]);
 
-const res = await client.callTool({
-  name: "render_diagram",
+// Step 1: build the XML (what the model does first).
+const created = await client.callTool({
+  name: "create_diagram",
   arguments: {
-    title: "Deployment Flow",
     nodes: [
       { id: "start", label: "Commit pushed", shape: "terminator", fillColor: "#d5e8d4", strokeColor: "#82b366" },
       { id: "ci", label: "Run CI", shape: "process" },
@@ -32,6 +32,13 @@ const res = await client.callTool({
       { source: "deploy", target: "done" },
     ],
   },
+});
+const xml = created.content.find((c) => c.type === "text")?.text;
+
+// Step 2: render the built XML (what the model does second).
+const res = await client.callTool({
+  name: "render_diagram",
+  arguments: { title: "Deployment Flow", xml },
 });
 
 const html = res.content.find((c) => c.type === "resource")?.resource?.text;

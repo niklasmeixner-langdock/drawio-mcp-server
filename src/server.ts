@@ -63,19 +63,6 @@ const directionSchema = z
 
 export const EDITOR_RESOURCE_URI = "ui://drawio/editor";
 
-// The editor embeds the draw.io WEB editor (embed.diagrams.net) in a nested
-// iframe. MCP App resources render in a sandboxed iframe whose CSP defaults to
-// `frame-src 'none'`, so without this the editor is silently blocked and the
-// canvas shows up blank. Declaring frameDomains opens `frame-src` for draw.io.
-export const UI_RESOURCE_META = {
-  ui: {
-    csp: {
-      frameDomains: ["https://embed.diagrams.net", "https://app.diagrams.net"],
-    },
-    permissions: { clipboardWrite: {} },
-  },
-} as const;
-
 // ---------------------------------------------------------------------------
 // MCP Server Factory
 // ---------------------------------------------------------------------------
@@ -86,21 +73,20 @@ export function createMcpServer(): McpServer {
     version: "1.0.0",
   });
 
-  // Register the editor UI as an MCP App resource. The CSP meta is attached
-  // both at the listing level and on the read content item (which takes
-  // precedence) so the host allows the embedded draw.io editor iframe.
+  // Register the editor UI as an MCP App resource. Mirrors the working
+  // google-maps app: no CSP overrides — the UI renders the diagram with an
+  // in-document script (the draw.io viewer), not a nested iframe.
   registerAppResource(
     server,
     EDITOR_RESOURCE_URI,
     EDITOR_RESOURCE_URI,
-    { mimeType: RESOURCE_MIME_TYPE, _meta: UI_RESOURCE_META },
+    { mimeType: RESOURCE_MIME_TYPE },
     async () => ({
       contents: [
         {
           uri: EDITOR_RESOURCE_URI,
           mimeType: RESOURCE_MIME_TYPE,
           text: await getEditorHtml(),
-          _meta: UI_RESOURCE_META,
         },
       ],
     }),
@@ -208,7 +194,6 @@ export function createMcpServer(): McpServer {
                 uri: EDITOR_RESOURCE_URI,
                 mimeType: RESOURCE_MIME_TYPE,
                 text: html,
-                _meta: UI_RESOURCE_META,
               },
             },
           ],
