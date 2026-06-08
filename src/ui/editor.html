@@ -446,11 +446,10 @@
         app.onrenderdata = (data) => loadDiagram(data);
         app.connect();
 
-        if (embedded) {
-          loadDiagram(embedded);
-        } else {
-          showStatus("Waiting for a diagram…", false);
-        }
+        // Always open an editable canvas right away. If the host provided a
+        // diagram, pre-load it; otherwise start with a blank canvas so the
+        // user can build "from scratch".
+        loadDiagram(embedded || {});
 
         app.processQueue();
       }

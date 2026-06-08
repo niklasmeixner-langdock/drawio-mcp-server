@@ -140,9 +140,11 @@ export function createMcpServer(): McpServer {
     {
       title: "Render Diagram",
       description:
-        "Display an interactive, editable draw.io canvas. Provide either ready-made mxGraph `xml` " +
-        "(e.g. from create_diagram) or a structured `nodes`/`edges` description to build and render in one step. " +
-        "The user can edit the diagram live and export it as PNG, SVG, or XML.",
+        "Open an interactive, editable draw.io canvas in the client. " +
+        "Call with NO arguments to open a blank canvas for the user to build from scratch, " +
+        "or pass ready-made mxGraph `xml` (e.g. from create_diagram) or a structured `nodes`/`edges` " +
+        "description to pre-load a diagram. The user can edit live and export to PNG, SVG, or XML. " +
+        "This is the tool to use whenever the user wants to draw, render, visualize, or edit a diagram.",
       inputSchema: {
         xml: z
           .string()
@@ -171,18 +173,7 @@ export function createMcpServer(): McpServer {
     async ({ xml, nodes, edges, direction, title, editable }) => {
       try {
         let diagramXml = xml;
-        if (!diagramXml) {
-          if (!nodes || nodes.length === 0) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: "Provide either `xml` or a non-empty `nodes` array to render.",
-                },
-              ],
-              isError: true,
-            };
-          }
+        if (!diagramXml && nodes && nodes.length > 0) {
           diagramXml = buildDiagramXml(
             nodes as DiagramNode[],
             (edges ?? []) as DiagramEdge[],
@@ -190,11 +181,14 @@ export function createMcpServer(): McpServer {
           );
         }
 
+        // No xml and no nodes => open a blank, editable canvas to start from
+        // scratch. The editor UI defaults to an empty diagram when no xml is
+        // provided.
         const renderData: Record<string, unknown> = {
-          xml: diagramXml,
           title: title ?? "Diagram",
           editable: editable ?? true,
         };
+        if (diagramXml) renderData.xml = diagramXml;
 
         let html = await getEditorHtml();
         html = html.replace(

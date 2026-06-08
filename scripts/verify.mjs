@@ -80,9 +80,11 @@ const passthrough = await client.callTool({
 });
 check("render_diagram accepts raw xml", !passthrough.isError && passthrough._meta?.["mcpui.dev/ui-initial-render-data"]?.xml?.includes("mxGraphModel"));
 
-// 6. render_diagram with neither xml nor nodes -> graceful error
-const empty = await client.callTool({ name: "render_diagram", arguments: {} });
-check("render_diagram errors with no input", empty.isError === true);
+// 6. render_diagram with neither xml nor nodes -> blank editable canvas
+const blank = await client.callTool({ name: "render_diagram", arguments: {} });
+const blankResource = blank.content?.find((c) => c.type === "resource");
+check("render_diagram opens blank canvas with no input", !blank.isError && blankResource?.resource?.uri === "ui://drawio/editor");
+check("blank render still serves the editor html", (blankResource?.resource?.text ?? "").includes("embed.diagrams.net"));
 
 await client.close();
 await server.close();
