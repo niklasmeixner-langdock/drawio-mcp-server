@@ -67,7 +67,7 @@ The diagram renders as **interactive inline SVG** (zoom / pan / fullscreen light
 
 ### `ui://drawio/editor`
 
-The interactive editor UI rendered by `render_diagram`, served as an MCP App resource. It embeds [`embed.diagrams.net`](https://www.drawio.com/doc/faq/embed-mode) and communicates with it over the JSON postMessage protocol.
+The diagram UI rendered by `render_diagram`, served as an MCP App resource. It loads the draw.io [viewer](https://www.drawio.com/doc/faq/embed-html-options) as an in-document script and draws the diagram as inline SVG.
 
 ## Client Configuration
 
