@@ -51,39 +51,34 @@ check("diamond shape applied to decision", xml.includes("rhombus"));
 check("dashed edge applied", xml.includes("dashed=1"));
 check("auto-layout produced geometry", (xml.match(/<mxGeometry /g) || []).length >= 4);
 
-// 4. render_diagram from nodes -> UI resource with injected data
+// 4. render_diagram only takes xml/title (NOT nodes/edges — building belongs to create_diagram)
+const renderProps = tools.find((t) => t.name === "render_diagram")?.inputSchema?.properties ?? {};
+check("render_diagram inputs are xml + title only", Object.keys(renderProps).sort().join(",") === "title,xml", Object.keys(renderProps).join(", "));
+
+// 5. render_diagram(xml) -> UI resource with injected data
 const rendered = await client.callTool({
   name: "render_diagram",
-  arguments: {
-    title: "Release Flow",
-    nodes: [
-      { id: "a", label: "A" },
-      { id: "b", label: "B" },
-    ],
-    edges: [{ source: "a", target: "b" }],
-  },
+  arguments: { title: "Release Flow", xml },
 });
 check("render_diagram not error", !rendered.isError);
 const resourceItem = rendered.content?.find((c) => c.type === "resource");
 const html = resourceItem?.resource?.text ?? "";
 check("render returns editor resource", resourceItem?.resource?.uri === "ui://drawio/editor");
 check("html injects window.DIAGRAM_DATA", html.includes("window.DIAGRAM_DATA ="));
-check("html injects data-schema attribute", html.includes('data-schema="'));
-check("html embeds draw.io editor iframe url", html.includes("embed.diagrams.net"));
-check("initial-render-data meta present", !!rendered._meta?.["mcpui.dev/ui-initial-render-data"]?.xml);
+check("html embeds draw.io web editor iframe", html.includes("embed.diagrams.net"));
+check("initial-render-data carries xml", !!rendered._meta?.["mcpui.dev/ui-initial-render-data"]?.xml);
 check("render data carries title", rendered._meta?.["mcpui.dev/ui-initial-render-data"]?.title === "Release Flow");
 
-// 5. render_diagram from raw xml passthrough
-const passthrough = await client.callTool({
-  name: "render_diagram",
-  arguments: { xml: "<mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/></root></mxGraphModel>" },
-});
-check("render_diagram accepts raw xml", !passthrough.isError && passthrough._meta?.["mcpui.dev/ui-initial-render-data"]?.xml?.includes("mxGraphModel"));
+// 6. CSP: the rendered resource + resource read both declare frameDomains for the draw.io editor
+check("rendered resource carries CSP frameDomains", resourceItem?.resource?._meta?.ui?.csp?.frameDomains?.includes("https://embed.diagrams.net"));
+const readRes = await client.readResource({ uri: "ui://drawio/editor" });
+const cspFrames = readRes.contents?.[0]?._meta?.ui?.csp?.frameDomains ?? [];
+check("resource read declares frameDomains for embed.diagrams.net", cspFrames.includes("https://embed.diagrams.net"), cspFrames.join(", "));
 
-// 6. render_diagram with neither xml nor nodes -> blank editable canvas
+// 7. render_diagram with no xml -> blank editable canvas
 const blank = await client.callTool({ name: "render_diagram", arguments: {} });
 const blankResource = blank.content?.find((c) => c.type === "resource");
-check("render_diagram opens blank canvas with no input", !blank.isError && blankResource?.resource?.uri === "ui://drawio/editor");
+check("render_diagram opens blank canvas with no xml", !blank.isError && blankResource?.resource?.uri === "ui://drawio/editor");
 check("blank render still serves the editor html", (blankResource?.resource?.text ?? "").includes("embed.diagrams.net"));
 
 await client.close();

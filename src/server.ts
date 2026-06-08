@@ -63,6 +63,19 @@ const directionSchema = z
 
 export const EDITOR_RESOURCE_URI = "ui://drawio/editor";
 
+// The editor embeds the draw.io WEB editor (embed.diagrams.net) in a nested
+// iframe. MCP App resources render in a sandboxed iframe whose CSP defaults to
+// `frame-src 'none'`, so without this the editor is silently blocked and the
+// canvas shows up blank. Declaring frameDomains opens `frame-src` for draw.io.
+export const UI_RESOURCE_META = {
+  ui: {
+    csp: {
+      frameDomains: ["https://embed.diagrams.net", "https://app.diagrams.net"],
+    },
+    permissions: { clipboardWrite: {} },
+  },
+} as const;
+
 // ---------------------------------------------------------------------------
 // MCP Server Factory
 // ---------------------------------------------------------------------------
@@ -73,18 +86,21 @@ export function createMcpServer(): McpServer {
     version: "1.0.0",
   });
 
-  // Register the editor UI as an MCP App resource.
+  // Register the editor UI as an MCP App resource. The CSP meta is attached
+  // both at the listing level and on the read content item (which takes
+  // precedence) so the host allows the embedded draw.io editor iframe.
   registerAppResource(
     server,
     EDITOR_RESOURCE_URI,
     EDITOR_RESOURCE_URI,
-    { mimeType: RESOURCE_MIME_TYPE },
+    { mimeType: RESOURCE_MIME_TYPE, _meta: UI_RESOURCE_META },
     async () => ({
       contents: [
         {
           uri: EDITOR_RESOURCE_URI,
           mimeType: RESOURCE_MIME_TYPE,
           text: await getEditorHtml(),
+          _meta: UI_RESOURCE_META,
         },
       ],
     }),
@@ -140,55 +156,35 @@ export function createMcpServer(): McpServer {
     {
       title: "Render Diagram",
       description:
-        "Open an interactive, editable draw.io canvas in the client. " +
-        "Call with NO arguments to open a blank canvas for the user to build from scratch, " +
-        "or pass ready-made mxGraph `xml` (e.g. from create_diagram) or a structured `nodes`/`edges` " +
-        "description to pre-load a diagram. The user can edit live and export to PNG, SVG, or XML. " +
+        "Open an interactive, editable draw.io canvas in the client to display a diagram. " +
+        "Pass ready-made mxGraph `xml` (typically the output of create_diagram) to render it, " +
+        "or call with no `xml` to open a blank canvas for the user to draw from scratch. " +
+        "The user can edit live and export to PNG, SVG, or XML. " +
+        "Use create_diagram first to build the XML from a description, then pass it here. " +
         "This is the tool to use whenever the user wants to draw, render, visualize, or edit a diagram.",
       inputSchema: {
         xml: z
           .string()
           .optional()
-          .describe("Ready-made mxGraph XML to render. Provide this OR nodes/edges."),
-        nodes: z
-          .array(nodeSchema)
-          .optional()
-          .describe("Nodes to build a diagram from (used when xml is not given)."),
-        edges: z
-          .array(edgeSchema)
-          .optional()
-          .describe("Edges connecting the nodes (used when xml is not given)."),
-        direction: directionSchema,
+          .describe(
+            "The mxGraph XML to render, e.g. the output of create_diagram. Omit to open a blank canvas.",
+          ),
         title: z
           .string()
           .optional()
           .describe("Title shown above the canvas (default: 'Diagram')."),
-        editable: z
-          .boolean()
-          .optional()
-          .describe("Allow editing in the canvas (default: true)."),
       },
       _meta: { ui: { resourceUri: EDITOR_RESOURCE_URI } },
     },
-    async ({ xml, nodes, edges, direction, title, editable }) => {
+    async ({ xml, title }) => {
       try {
-        let diagramXml = xml;
-        if (!diagramXml && nodes && nodes.length > 0) {
-          diagramXml = buildDiagramXml(
-            nodes as DiagramNode[],
-            (edges ?? []) as DiagramEdge[],
-            { direction },
-          );
-        }
-
-        // No xml and no nodes => open a blank, editable canvas to start from
-        // scratch. The editor UI defaults to an empty diagram when no xml is
-        // provided.
+        // No xml => open a blank, editable canvas to start from scratch. The
+        // editor UI defaults to an empty diagram when no xml is provided.
         const renderData: Record<string, unknown> = {
           title: title ?? "Diagram",
-          editable: editable ?? true,
+          editable: true,
         };
-        if (diagramXml) renderData.xml = diagramXml;
+        if (xml) renderData.xml = xml;
 
         let html = await getEditorHtml();
         html = html.replace(
@@ -204,10 +200,7 @@ export function createMcpServer(): McpServer {
           content: [
             {
               type: "text",
-              text: JSON.stringify({
-                title: renderData.title,
-                editable: renderData.editable,
-              }),
+              text: `Opened "${renderData.title}" in an editable draw.io canvas.`,
             },
             {
               type: "resource",
@@ -215,6 +208,7 @@ export function createMcpServer(): McpServer {
                 uri: EDITOR_RESOURCE_URI,
                 mimeType: RESOURCE_MIME_TYPE,
                 text: html,
+                _meta: UI_RESOURCE_META,
               },
             },
           ],

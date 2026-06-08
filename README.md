@@ -55,11 +55,13 @@ Positions are auto-laid-out (layered, centered) when `x`/`y` are omitted — jus
 
 ### `render_diagram`
 
-Display an interactive, editable draw.io canvas. Provide either ready-made `xml` (e.g. from `create_diagram`) or a `nodes`/`edges` description to build and render in one step.
+Display an interactive, editable draw.io canvas. Renders ready-made mxGraph `xml` (typically the output of `create_diagram`); building from a description lives in `create_diagram`, so this tool only renders.
 
-**Parameters:** `xml` _or_ (`nodes` + `edges`), plus optional `direction`, `title`, `editable`.
+**Parameters:** `xml` (the diagram to render — omit to open a blank canvas), `title` (optional).
 
 The rendered canvas supports live editing and exporting to **PNG** (re-editable, `xmlpng`), **SVG** (`xmlsvg`), and **XML** (`.drawio`).
+
+> The canvas embeds the draw.io **web editor** (`embed.diagrams.net`) in a nested iframe. MCP Apps render in a sandboxed iframe whose CSP defaults to `frame-src 'none'`, so the editor resource declares `_meta.ui.csp.frameDomains` for `embed.diagrams.net` / `app.diagrams.net` — without it the canvas renders blank.
 
 ## Resources
 
