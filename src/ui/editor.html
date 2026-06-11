@@ -91,25 +91,45 @@
         transition: background 0.12s ease, opacity 0.12s ease;
       }
 
-      .btn:hover {
+      .btn:hover:not(:disabled) {
         background: #f4f4f5;
       }
 
-      .viewer-wrap {
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      .editor-wrap {
         position: relative;
         flex: 1 1 auto;
         min-height: 0;
-        overflow: auto;
         background:
           radial-gradient(circle, #e9e9ee 1px, transparent 1px) 0 0 / 22px 22px;
       }
 
+      .editor-wrap iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: var(--bg);
+      }
+
+      /* Read-only fallback (draw.io viewer rendering inline SVG) */
       #viewer-host {
-        display: flex;
+        position: absolute;
+        inset: 0;
+        overflow: auto;
+        display: none;
         align-items: flex-start;
         justify-content: center;
         padding: 20px;
-        min-height: 100%;
+      }
+
+      #viewer-host.active {
+        display: flex;
       }
 
       #viewer-host .mxgraph {
@@ -118,6 +138,25 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+
+      .notice {
+        position: absolute;
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        color: #92400e;
+        font-size: 12px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        display: none;
+        z-index: 2;
+      }
+
+      .notice.visible {
+        display: block;
       }
 
       .status {
@@ -131,6 +170,8 @@
         color: var(--fg-muted);
         text-align: center;
         padding: 24px;
+        z-index: 1;
+        background: var(--bg);
       }
 
       .status.hidden {
@@ -165,15 +206,22 @@
           <span class="dot"></span><span id="title">Diagram</span>
         </div>
         <div class="actions">
+          <button id="export-png" class="btn" disabled>PNG</button>
+          <button id="export-svg" class="btn" disabled>SVG</button>
+          <button id="export-xml" class="btn" disabled>XML</button>
           <a id="edit" class="btn" href="https://app.diagrams.net/" target="_blank" rel="noopener">Edit in draw.io ↗</a>
         </div>
       </header>
-      <div class="viewer-wrap">
+      <div class="editor-wrap">
         <div id="status" class="status">
           <div class="spinner"></div>
-          <div id="status-text">Rendering diagram…</div>
+          <div id="status-text">Loading the draw.io editor…</div>
         </div>
         <div id="viewer-host"></div>
+        <div id="notice" class="notice">
+          Editor unavailable — showing a read-only preview. Use “Edit in
+          draw.io” to edit.
+        </div>
       </div>
     </div>
 
@@ -241,19 +289,41 @@
       }
 
       // -----------------------------------------------------------------
-      // draw.io viewer (rendered as inline SVG via an in-document script —
-      // NO nested iframe, so it renders inside the sandboxed MCP-App iframe).
+      // Primary: the full draw.io EDITOR (embed.diagrams.net) in a nested
+      // iframe, driven over its JSON postMessage protocol. The Langdock
+      // MCP-App sandbox applies no CSP today, so the nested iframe renders;
+      // the resource also declares `_meta.ui.csp.frameDomains` for hosts
+      // that do enforce resource-declared CSP.
+      //
+      // Fallback: if the editor never initializes (host enforcing
+      // `frame-src 'none'`, network block, …) we swap to the read-only
+      // draw.io VIEWER, loaded as an in-document script (no nested iframe).
       // -----------------------------------------------------------------
+      const EMBED_URL =
+        "https://embed.diagrams.net/?embed=1&proto=json&spin=1&libraries=1&ui=min";
       const VIEWER_SRC = "https://viewer.diagrams.net/js/viewer-static.min.js";
+      const EMPTY_XML =
+        '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel>';
+      const EDITOR_INIT_TIMEOUT_MS = 12000;
 
       const app = new App({ name: "draw.io", version: "1.0.0" });
-      const hostEl = document.getElementById("viewer-host");
+      const wrapEl = document.querySelector(".editor-wrap");
+      const viewerHostEl = document.getElementById("viewer-host");
       const statusEl = document.getElementById("status");
       const statusTextEl = document.getElementById("status-text");
+      const noticeEl = document.getElementById("notice");
       const titleEl = document.getElementById("title");
       const editEl = document.getElementById("edit");
+      const exportButtons = {
+        png: document.getElementById("export-png"),
+        svg: document.getElementById("export-svg"),
+        xml: document.getElementById("export-xml"),
+      };
 
-      let viewerReady = false;
+      let frame = null;
+      let editorReady = false;
+      let fallbackMode = false;
+      let initTimeout = null;
       let latest = null; // most recent render data
       let currentXml = null;
 
@@ -266,6 +336,13 @@
       }
       function hideStatus() {
         statusEl.classList.add("hidden");
+      }
+
+      function setExportEnabled() {
+        exportButtons.png.disabled = !editorReady;
+        exportButtons.svg.disabled = !editorReady;
+        // XML export only needs the XML we already hold.
+        exportButtons.xml.disabled = !editorReady && !currentXml;
       }
 
       function getEmbeddedSchema() {
@@ -282,6 +359,112 @@
         return null;
       }
 
+      // -----------------------------------------------------------------
+      // Editor (nested iframe, JSON protocol)
+      // -----------------------------------------------------------------
+      function postToEditor(msg) {
+        if (frame?.contentWindow) {
+          frame.contentWindow.postMessage(JSON.stringify(msg), "*");
+        }
+      }
+
+      function ensureFrame() {
+        if (frame || fallbackMode) return;
+        frame = document.createElement("iframe");
+        frame.setAttribute("title", "draw.io editor");
+        frame.setAttribute("allow", "clipboard-read; clipboard-write");
+        frame.src = EMBED_URL;
+        frame.addEventListener("error", () => {
+          if (!editorReady) enterFallback();
+        });
+        wrapEl.insertBefore(frame, statusEl);
+
+        // If the embed never sends `init` (nested iframes blocked by a host
+        // CSP, offline, …) fall back to the read-only viewer.
+        initTimeout = setTimeout(() => {
+          if (!editorReady) enterFallback();
+        }, EDITOR_INIT_TIMEOUT_MS);
+      }
+
+      window.addEventListener("message", (event) => {
+        if (!frame || event.source !== frame.contentWindow) return;
+        if (typeof event.data !== "string" || event.data.length === 0) return;
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch (e) {
+          return;
+        }
+
+        switch (msg.event) {
+          case "init":
+            editorReady = true;
+            if (initTimeout) clearTimeout(initTimeout);
+            hideStatus();
+            setExportEnabled();
+            postToEditor({
+              action: "load",
+              autosave: 1,
+              xml: currentXml || EMPTY_XML,
+            });
+            break;
+          case "save":
+          case "autosave":
+            if (msg.xml) {
+              currentXml = msg.xml;
+              updateEditLink();
+            }
+            if (msg.event === "save") {
+              postToEditor({
+                action: "status",
+                messageKey: "allChangesSaved",
+                modified: false,
+              });
+            }
+            break;
+          case "export":
+            handleExport(msg);
+            break;
+          default:
+            break;
+        }
+      });
+
+      // -----------------------------------------------------------------
+      // Fallback: read-only viewer as an in-document script
+      // -----------------------------------------------------------------
+      function enterFallback() {
+        if (fallbackMode) return;
+        fallbackMode = true;
+        editorReady = false;
+        if (initTimeout) clearTimeout(initTimeout);
+        if (frame) {
+          frame.remove();
+          frame = null;
+        }
+        noticeEl.classList.add("visible");
+        setExportEnabled();
+
+        if (!currentXml) {
+          showStatus(
+            'The draw.io editor could not load here. ' +
+              'Use <strong>Edit in draw.io</strong> to draw in a new tab.',
+            false,
+          );
+          return;
+        }
+
+        loadViewerScript()
+          .then(() => renderViewer())
+          .catch(() => {
+            showStatus(
+              'Could not load the draw.io viewer. ' +
+                '<a href="https://app.diagrams.net" target="_blank" rel="noopener">Open draw.io ↗</a>',
+              true,
+            );
+          });
+      }
+
       function loadViewerScript() {
         return new Promise((resolve, reject) => {
           if (window.GraphViewer) return resolve();
@@ -296,23 +479,22 @@
         });
       }
 
-      function renderCurrent() {
-        if (!viewerReady || !latest || !latest.xml) return;
-        currentXml = latest.xml;
-
+      function renderViewer() {
+        if (!currentXml) return;
         const config = {
           highlight: "#0066cc",
           nav: true,
           resize: true,
           toolbar: "zoom layers lightbox",
-          xml: latest.xml,
+          xml: currentXml,
         };
 
-        hostEl.innerHTML = "";
+        viewerHostEl.classList.add("active");
+        viewerHostEl.innerHTML = "";
         const el = document.createElement("div");
         el.className = "mxgraph";
         el.setAttribute("data-mxgraph", JSON.stringify(config));
-        hostEl.appendChild(el);
+        viewerHostEl.appendChild(el);
 
         try {
           window.GraphViewer.createViewerForElement(el);
@@ -323,16 +505,96 @@
         }
       }
 
+      // -----------------------------------------------------------------
+      // Render data from the host / embedded schema
+      // -----------------------------------------------------------------
       function applyRenderData(data) {
         latest = data || {};
-        if (data?.title) titleEl.textContent = data.title;
+        if (latest.title) titleEl.textContent = latest.title;
+        if (latest.xml && typeof latest.xml === "string") {
+          currentXml = latest.xml;
+        }
         updateEditLink();
-        if (!latest.xml) {
-          showStatus("No diagram to display yet.", false);
+        setExportEnabled();
+
+        if (fallbackMode) {
+          if (currentXml && window.GraphViewer) renderViewer();
           return;
         }
-        renderCurrent();
+        ensureFrame();
+        if (editorReady) {
+          postToEditor({
+            action: "load",
+            autosave: 1,
+            xml: currentXml || EMPTY_XML,
+          });
+        }
       }
+
+      // -----------------------------------------------------------------
+      // Export
+      // -----------------------------------------------------------------
+      const EXPORT_FORMATS = {
+        png: { action: "xmlpng", ext: "png", mime: "image/png" },
+        svg: { action: "xmlsvg", ext: "svg", mime: "image/svg+xml" },
+        xml: { action: "xml", ext: "drawio", mime: "application/xml" },
+      };
+
+      function requestExport(kind) {
+        if (kind === "xml" && !editorReady) {
+          // Fallback path: download the XML we hold directly.
+          if (currentXml) downloadBlob(currentXml, "drawio", "application/xml");
+          return;
+        }
+        const fmt = EXPORT_FORMATS[kind];
+        if (!fmt || !editorReady) return;
+        postToEditor({ action: "export", format: fmt.action });
+      }
+
+      function downloadBlob(data, ext, mime) {
+        const filename = `${(titleEl.textContent || "diagram").replace(/[^a-z0-9-_]+/gi, "-")}.${ext}`;
+        const href = URL.createObjectURL(new Blob([data], { type: mime }));
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 2000);
+      }
+
+      function handleExport(msg) {
+        try {
+          const ext =
+            msg.format === "xml"
+              ? "drawio"
+              : msg.format && msg.format.includes("svg")
+                ? "svg"
+                : "png";
+          const filename = `${(titleEl.textContent || "diagram").replace(/[^a-z0-9-_]+/gi, "-")}.${ext}`;
+          let href = msg.data;
+          if (!href || typeof href !== "string") {
+            downloadBlob(msg.xml || currentXml || "", "drawio", "application/xml");
+            return;
+          }
+          if (!href.startsWith("data:") && !href.startsWith("blob:")) {
+            downloadBlob(href, ext, "application/xml");
+            return;
+          }
+          const a = document.createElement("a");
+          a.href = href;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } catch (e) {
+          console.error("Export failed:", e);
+        }
+      }
+
+      exportButtons.png.addEventListener("click", () => requestExport("png"));
+      exportButtons.svg.addEventListener("click", () => requestExport("svg"));
+      exportButtons.xml.addEventListener("click", () => requestExport("xml"));
 
       // ---- "Edit in draw.io": open the full editor with the diagram preloaded
       async function deflateRawBase64(str) {
@@ -354,11 +616,10 @@
       async function updateEditLink() {
         // Default to the blank editor; upgrade to a preloaded URL if we can.
         editEl.href = "https://app.diagrams.net/";
-        if (!currentXml && !latest?.xml) return;
-        const xml = currentXml || latest.xml;
+        if (!currentXml) return;
         try {
           if (typeof CompressionStream === "function") {
-            const data = await deflateRawBase64(xml);
+            const data = await deflateRawBase64(currentXml);
             editEl.href = "https://app.diagrams.net/#R" + encodeURIComponent(data);
           }
         } catch (e) {
@@ -366,8 +627,9 @@
         }
       }
 
-      // Also ask the host to open the link (works even if popups are blocked
-      // for the sandboxed iframe); the anchor handles hosts without open-link.
+      // Ask the host to open the link (the sandbox lacks `allow-popups`, so
+      // `target=_blank` dies silently); the anchor handles hosts without
+      // open-link support.
       editEl.addEventListener("click", () => {
         try {
           window.parent.postMessage(
@@ -388,21 +650,9 @@
         app.onrenderdata = (data) => applyRenderData(data);
         app.connect();
 
-        loadViewerScript()
-          .then(() => {
-            viewerReady = true;
-            renderCurrent();
-          })
-          .catch(() => {
-            showStatus(
-              'Could not load the draw.io viewer. ' +
-                '<a href="https://app.diagrams.net" target="_blank" rel="noopener">Open draw.io ↗</a>',
-              true,
-            );
-          });
-
-        if (embedded) applyRenderData(embedded);
-        else showStatus("Waiting for a diagram…", false);
+        // Always open an editable canvas right away — blank if the host
+        // provided no diagram, pre-loaded otherwise.
+        applyRenderData(embedded || {});
 
         app.processQueue();
       }

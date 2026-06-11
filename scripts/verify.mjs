@@ -65,20 +65,26 @@ const resourceItem = rendered.content?.find((c) => c.type === "resource");
 const html = resourceItem?.resource?.text ?? "";
 check("render returns editor resource", resourceItem?.resource?.uri === "ui://drawio/editor");
 check("html injects window.DIAGRAM_DATA", html.includes("window.DIAGRAM_DATA ="));
-check("html renders via in-document viewer script (like google-maps)", html.includes("viewer.diagrams.net/js/viewer-static.min.js"));
-check("html does NOT use a nested editor iframe", !html.includes("embed.diagrams.net"));
+check("html embeds the draw.io EDITOR (embed.diagrams.net nested iframe)", html.includes("embed.diagrams.net"));
+check("html keeps the read-only viewer script as fallback", html.includes("viewer.diagrams.net/js/viewer-static.min.js"));
+check("result resource item carries CSP meta", !!resourceItem?.resource?._meta?.ui?.csp?.frameDomains?.includes("https://embed.diagrams.net"));
 check("initial-render-data carries xml", !!rendered._meta?.["mcpui.dev/ui-initial-render-data"]?.xml);
 check("render data carries title", rendered._meta?.["mcpui.dev/ui-initial-render-data"]?.title === "Release Flow");
 
-// 6. mirrors google-maps exactly: no CSP overrides on the resource
+// 6. tools/list declares the UI resource + the read resource declares CSP
+//    (`_meta.ui.resourceUri` is what Langdock persists as uiResourceUri — the
+//    ENG-16323 regression class; frameDomains future-proofs hosts that
+//    enforce resource-declared CSP)
+const renderTool = tools.find((t) => t.name === "render_diagram");
+check("tools/list declares _meta.ui.resourceUri", renderTool?._meta?.ui?.resourceUri === "ui://drawio/editor");
 const readRes = await client.readResource({ uri: "ui://drawio/editor" });
-check("resource declares no CSP overrides (matches google-maps)", !readRes.contents?.[0]?._meta?.ui?.csp);
+check("read resource declares csp.frameDomains for the editor", !!readRes.contents?.[0]?._meta?.ui?.csp?.frameDomains?.includes("https://embed.diagrams.net"));
 
 // 7. render_diagram with no xml -> blank canvas
 const blank = await client.callTool({ name: "render_diagram", arguments: {} });
 const blankResource = blank.content?.find((c) => c.type === "resource");
 check("render_diagram opens blank canvas with no xml", !blank.isError && blankResource?.resource?.uri === "ui://drawio/editor");
-check("blank render still serves the viewer html", (blankResource?.resource?.text ?? "").includes("viewer.diagrams.net"));
+check("blank render still serves the editor html", (blankResource?.resource?.text ?? "").includes("embed.diagrams.net"));
 
 await client.close();
 await server.close();

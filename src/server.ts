@@ -63,6 +63,22 @@ const directionSchema = z
 
 export const EDITOR_RESOURCE_URI = "ui://drawio/editor";
 
+// The UI embeds the full draw.io EDITOR (embed.diagrams.net) in a nested
+// iframe. Langdock's MCP-App sandbox applies no CSP today, so the iframe
+// renders as-is — but hosts that honor resource-declared CSP map
+// `frameDomains` to `frame-src` (default 'none'), so declare it on every
+// path the host might read the resource from. `resourceDomains` covers the
+// read-only viewer script used as fallback when the embed cannot load.
+export const UI_RESOURCE_META = {
+  ui: {
+    csp: {
+      frameDomains: ["https://embed.diagrams.net", "https://app.diagrams.net"],
+      resourceDomains: ["https://viewer.diagrams.net"],
+    },
+    permissions: { clipboardWrite: {} },
+  },
+} as const;
+
 // ---------------------------------------------------------------------------
 // MCP Server Factory
 // ---------------------------------------------------------------------------
@@ -73,20 +89,21 @@ export function createMcpServer(): McpServer {
     version: "1.0.0",
   });
 
-  // Register the editor UI as an MCP App resource. Mirrors the working
-  // google-maps app: no CSP overrides — the UI renders the diagram with an
-  // in-document script (the draw.io viewer), not a nested iframe.
+  // Register the editor UI as an MCP App resource. The CSP meta is attached
+  // both at the listing level and on the read content item (which takes
+  // precedence in mcp-ui hosts).
   registerAppResource(
     server,
     EDITOR_RESOURCE_URI,
     EDITOR_RESOURCE_URI,
-    { mimeType: RESOURCE_MIME_TYPE },
+    { mimeType: RESOURCE_MIME_TYPE, _meta: UI_RESOURCE_META },
     async () => ({
       contents: [
         {
           uri: EDITOR_RESOURCE_URI,
           mimeType: RESOURCE_MIME_TYPE,
           text: await getEditorHtml(),
+          _meta: UI_RESOURCE_META,
         },
       ],
     }),
@@ -195,6 +212,7 @@ export function createMcpServer(): McpServer {
                 uri: EDITOR_RESOURCE_URI,
                 mimeType: RESOURCE_MIME_TYPE,
                 text: html,
+                _meta: UI_RESOURCE_META,
               },
             },
           ],

@@ -55,19 +55,19 @@ Positions are auto-laid-out (layered, centered) when `x`/`y` are omitted — jus
 
 ### `render_diagram`
 
-Display the diagram inline. Renders ready-made mxGraph `xml` (typically the output of `create_diagram`); building from a description lives in `create_diagram`, so this tool only renders.
+Display the diagram inline. Renders ready-made mxGraph `xml` (typically the output of `create_diagram`); omit `xml` to open a blank canvas. Building from a description lives in `create_diagram`, so this tool only renders.
 
-**Parameters:** `xml` (the diagram to render — omit for an empty placeholder), `title` (optional).
+**Parameters:** `xml` (the diagram to render — omit for a blank canvas), `title` (optional).
 
-The diagram renders as **interactive inline SVG** (zoom / pan / fullscreen lightbox) via the draw.io **viewer** script, plus an **"Edit in draw.io"** button that opens the full web editor in a new tab with the diagram preloaded (where you can edit and export to PNG/SVG/XML).
+The diagram opens in the **full draw.io editor** (`embed.diagrams.net` in a nested iframe, JSON postMessage protocol) — shape palette, live editing, autosave — with **PNG / SVG / XML** export buttons and an **"Edit in draw.io"** button that opens the standalone web editor in a new tab with the diagram preloaded.
 
-> **Why a script, not an iframe:** MCP Apps render inside a sandboxed iframe that allows in-document scripts but blocks nested iframes (CSP `frame-src 'none'`). So the UI loads the draw.io **viewer** (`viewer.diagrams.net/js/viewer-static.min.js`) as a `<script>` and draws inline SVG — the same mechanism the google-maps MCP app uses to render its map. Embedding `embed.diagrams.net` as a nested iframe renders blank.
+> **Fallback:** if the editor embed never initializes (a host enforcing CSP `frame-src 'none'`, network block, …) the UI swaps to the read-only draw.io **viewer** (`viewer-static.min.js`, an in-document script — no nested iframe) and shows a notice. The resource declares `_meta.ui.csp.frameDomains` for `embed`/`app.diagrams.net` so hosts that honor resource-declared CSP keep the editor working; hosts that apply no CSP to MCP-app sandboxes (Langdock today) render the editor as-is.
 
 ## Resources
 
 ### `ui://drawio/editor`
 
-The diagram UI rendered by `render_diagram`, served as an MCP App resource. It loads the draw.io [viewer](https://www.drawio.com/doc/faq/embed-html-options) as an in-document script and draws the diagram as inline SVG.
+The diagram UI rendered by `render_diagram`, served as an MCP App resource: the embedded [draw.io editor](https://www.drawio.com/doc/faq/embed-mode) with a read-only [viewer](https://www.drawio.com/doc/faq/embed-html-options) fallback.
 
 ## Client Configuration
 
