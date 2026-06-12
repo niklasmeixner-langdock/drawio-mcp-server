@@ -551,15 +551,34 @@
         postToEditor({ action: "export", format: fmt.action });
       }
 
+      // The MCP-app sandbox lacks `allow-downloads`, so an anchor clicked in
+      // THIS document is silently dropped. When the host grants
+      // `allow-same-origin` on a same-origin sandbox (Langdock does), we can
+      // click the anchor in the PARENT document instead — the top frame is
+      // not sandboxed, so the download goes through. Falls back to a local
+      // click for hosts where the parent is cross-origin (throws) or the
+      // sandbox already permits downloads.
+      function triggerDownload(href, filename) {
+        let doc = document;
+        try {
+          if (window.parent !== window && window.parent.document) {
+            doc = window.parent.document;
+          }
+        } catch (e) {
+          /* cross-origin parent — use our own document */
+        }
+        const a = doc.createElement("a");
+        a.href = href;
+        a.download = filename;
+        doc.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+
       function downloadBlob(data, ext, mime) {
         const filename = `${(titleEl.textContent || "diagram").replace(/[^a-z0-9-_]+/gi, "-")}.${ext}`;
         const href = URL.createObjectURL(new Blob([data], { type: mime }));
-        const a = document.createElement("a");
-        a.href = href;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        triggerDownload(href, filename);
         setTimeout(() => URL.revokeObjectURL(href), 2000);
       }
 
@@ -581,12 +600,7 @@
             downloadBlob(href, ext, "application/xml");
             return;
           }
-          const a = document.createElement("a");
-          a.href = href;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
+          triggerDownload(href, filename);
         } catch (e) {
           console.error("Export failed:", e);
         }

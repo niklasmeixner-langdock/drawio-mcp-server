@@ -67,6 +67,7 @@ check("render returns editor resource", resourceItem?.resource?.uri === "ui://dr
 check("html injects window.DIAGRAM_DATA", html.includes("window.DIAGRAM_DATA ="));
 check("html embeds the draw.io EDITOR (embed.diagrams.net nested iframe)", html.includes("embed.diagrams.net"));
 check("html keeps the read-only viewer script as fallback", html.includes("viewer.diagrams.net/js/viewer-static.min.js"));
+check("html routes downloads through the parent frame (sandbox lacks allow-downloads)", html.includes("function triggerDownload") && html.includes("window.parent.document"));
 check("result resource item carries CSP meta", !!resourceItem?.resource?._meta?.ui?.csp?.frameDomains?.includes("https://embed.diagrams.net"));
 check("initial-render-data carries xml", !!rendered._meta?.["mcpui.dev/ui-initial-render-data"]?.xml);
 check("render data carries title", rendered._meta?.["mcpui.dev/ui-initial-render-data"]?.title === "Release Flow");
